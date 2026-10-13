@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.egg-info/
+dist/
+build/
+tmpdir/
+# workspace-only files (agent logs, machine-specific notes)
+PROJECT_LOG.md
+PROJECT_UNDERSTANDING.md

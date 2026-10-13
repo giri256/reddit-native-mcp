@@ -1,0 +1,30 @@
+[project]
+name = "reddit-native-mcp"
+version = "0.2.0"
+description = "Reddit MCP server that reads reddit.com itself: full threads, topic/similar post discovery, optional linked account for posting."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+keywords = ["mcp", "model-context-protocol", "reddit", "claude", "ai-agents"]
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Internet :: WWW/HTTP",
+]
+# mcp 2.x: the code uses mcp.server.mcpserver.MCPServer (FastMCP's 2.x name).
+# h2: talks HTTP/2 to reddit.com.
+dependencies = ["mcp>=2.3,<3", "httpx>=0.27", "h2>=4", "websockets>=13", "yt-dlp>=2025.1.1"]
+
+[project.urls]
+Homepage = "https://github.com/giri256/reddit-native-mcp"
+Issues = "https://github.com/giri256/reddit-native-mcp/issues"
+
+[project.scripts]
+reddit-native-mcp = "reddit_native_mcp.server:main"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

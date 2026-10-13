@@ -1,0 +1,20 @@
+{
+"GET https://www.reddit.com/r/running/s/3TzXiyxaMD -": {
+"status": 301,
+"headers": [
+[
+"location",
+"https://www.reddit.com/r/running/comments/17snc7d/achievements_for_saturday_november_11_2023/k8so54m?share_id=aKTFZA7HGp_XHUgYtr7f6&utm_content=2&utm_medium=android_app&utm_name=androidcss&utm_source=share&utm_term=1"
+],
+[
+"set-cookie",
+"loid=fixture; Path=/"
+],
+[
+"set-cookie",
+"loid=fixture; Path=/"
+]
+],
+"body": "<a href=\"https://www.reddit.com/r/running/comments/17snc7d/achievements_for_saturday_november_11_2023/k8so54m?share_id=aKTFZA7HGp_XHUgYtr7f6&amp;utm_content=2&amp;utm_medium=android_app&amp;utm_name=androidcss&amp;utm_source=share&amp;utm_term=1\">Moved Permanently</a>.\n\n"
+}
+}
