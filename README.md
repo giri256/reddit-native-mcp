@@ -1,97 +1,62 @@
 <p align="center">
-  <img src="assets/hero.png" alt="reddit-native-mcp: full Reddit threads for AI agents, no API keys" width="100%">
+  <img src="assets/hero.png" alt="reddit-native-mcp" width="100%">
 </p>
 
 # reddit-native-mcp
 
-An MCP server that gives AI agents (Claude Code, Claude Desktop, Cursor, opencode, any MCP client) **whole Reddit threads**, with every comment, including the ones Reddit hides behind "load more replies". It reads reddit.com directly. You don't need an API key, an app registration or a headless browser.
+An MCP server that fetches whole Reddit threads for your AI agent, including the replies hidden behind "load more comments". A 191-comment thread comes back complete in 2.2 s with a linked account, or 8 s logged out. No API key, no app registration, no headless browser.
 
 ```bash
 claude mcp add --transport stdio --scope user reddit-native -- uvx --from git+https://github.com/giri256/reddit-native-mcp reddit-native-mcp
 ```
 
-> Unofficial. Not affiliated with, endorsed by, or sponsored by Reddit, Inc. See [Disclaimer](#disclaimer).
+Works with Claude Code, Claude Desktop, Cursor, opencode and any other MCP client. Unofficial and not affiliated with Reddit, Inc. (see [Disclaimer](#disclaimer)).
 
-## Why another Reddit MCP?
+## Speed
 
-Most Reddit tools for agents return the post and a few top-level comments. On Reddit the useful part is often six replies deep, under a "12 more replies" link. reddit-native-mcp keeps expanding those links until it has the whole thread or reaches the size cap you set.
+<p align="center">
+  <img src="assets/bench-thread-fetch.svg" alt="Whole 191-comment thread: 2.2 s linked, 8.0 s anonymous. 220-comment thread: 3.6 s linked, 11.7 s anonymous. Cached repeat: 40 ms linked, 360 ms anonymous." width="100%">
+</p>
 
-- **Complete comment trees.** A 202-comment thread comes back as all 191 comments Reddit still serves, nested 6 levels deep, in one call (Reddit's counter also includes removed and deleted comments).
-- **Built for agents.** `format="text"` returns an indented outline instead of a JSON dump. It's about 22% smaller, so more comments fit in the context window. Output is size-capped, and truncation is explicit (`meta.truncated`, ids of the comments it left out).
-- **Discovery, not just fetching.** `find_posts` runs several searches across Reddit and inside the subreddits you choose, then merges and ranks the results. `find_similar` takes one post and finds others that share its link or its topic.
-- **Honest client.** It sends a User-Agent that names the tool, uses standard TLS, and keeps to Reddit's rate budget. It doesn't pretend to be a browser, rotate fake User-Agents or try to get past Reddit's bot checks. If Reddit says no, the tool tells you.
-- **Optional account link, like `yt-dlp --cookies-from-browser`.** It can reuse the Reddit login of a browser you're already signed in to. That raises your rate limits, makes thread reads faster, and turns on posting tools (text, link, image, gallery and video posts). You never type a password or create an OAuth app.
+Most of the time goes into expanding collapsed replies. Logged out, every "load more" link costs a separate request, so a big thread takes dozens. With a linked account the server reads Reddit's JSON API, which returns nearly the whole tree in one or two requests. That's why linked reads are 3–4× faster. Results are cached for 3 minutes, so follow-up questions about the same thread come back in milliseconds.
 
-## Benchmark
+<p align="center">
+  <img src="assets/bench-research-run.svg" alt="75 get_thread calls, median 0.66 s, maximum 3.3 s, 3,410 comments, 0 errors" width="100%">
+</p>
 
-These are real numbers. To prepare this release I used the server to research how MCP projects are announced on Reddit. I drove it over real MCP stdio from a Python client and timed every call (October 2026, home connection, Python 3.14).
+The second chart is one real session: I used the server to research how MCP projects get announced on Reddit. That took 138 tool calls with no errors. They read 3,634 posts and 75 full threads (3,410 comments), and a typical thread took 0.66 s. Searches are slower (5–9 s for 100 results) because Reddit serves search results in small pages.
 
-**Research run (linked account):**
+All numbers are wall-clock time measured by an MCP client over stdio on a home connection, October 2026. Server startup adds 1.6–2.5 s once per session.
 
-| | |
-|---|---|
-| Tool calls | 138 (63 searches/feeds + 75 full threads), **0 errors** |
-| Posts collected | 5,836 records → 3,634 unique posts |
-| Comments read | 3,410 across 75 threads, using 80 Reddit requests |
-| `get_thread` latency | median **0.66 s**, p90 1.6 s, max 3.3 s |
-| `search_posts` (100 results) | median 8.9 s (Reddit search pages are small, so it pages several times) |
+## What it does differently
 
-**Linked vs anonymous (cold cache):**
+Most Reddit tools for agents return the post plus a handful of top-level comments, but on Reddit the useful answer is often six replies deep. This server keeps expanding until it has the whole tree or reaches the size cap you set. When it does stop early, it says so and lists the ids it skipped.
 
-| Workload | Linked account | Anonymous |
-|---|---|---|
-| `get_thread`, 220-comment thread (default 60 KB cap) | **3.6 s** | 11.7 s |
-| `get_thread`, whole 191-comment thread, no cap | **2.2 s** | 8.0 s (40 requests) |
-| `get_thread` with `max_requests=1` | 220 comments | 25 comments |
-| `search_posts`, top 100 of r/mcp this month | 6.3 s | 4.4 s |
-| `find_posts`, 2 phrases × 2 subs | 3.5 s | 3.4 s |
-| `find_similar` | 3.9 s | 4.5 s |
-| Any repeat within 3 min (in-process cache) | 30–200 ms | 35–440 ms |
+`format="text"` returns the thread as an indented outline instead of JSON, about 22% smaller, so more comments fit in the context window. `find_posts` and `find_similar` cover discovery: several searches merged and ranked, or "find other posts about this one".
 
-Server startup takes about 1.6–2.5 s. Search speed is the same in both modes. Thread reads are 3–4× faster with a linked account, because those go through Reddit's JSON API.
+The client is honest. It sends a User-Agent that names the tool, doesn't rotate fake browser identities or try to get around bot checks, and keeps to Reddit's rate budget. If Reddit refuses a request, you get the error.
+
+Linking an account is optional and works like `yt-dlp --cookies-from-browser`: the server reuses the Reddit login from a browser you're already signed in to. That's what makes reads faster, and it also turns on the posting tools.
 
 ## Tools
 
-| Tool | What it does |
+| Tool | |
 |---|---|
-| `get_thread(post, comment_id?, sort, max_depth, max_output_chars, max_requests, format)` | Fetches a post and its full comment tree. `post` accepts any post or comment URL, `/s/` share link, `redd.it` link, bare id or `t1_` id. Sorts: best/top/new/old/controversial/qa. |
-| `search_posts(subreddit?, query?, author?, sort?, time_range?, limit, cursor?)` | Lists a subreddit feed (hot/new/top/rising/best) or runs a Reddit search (sitewide, in one subreddit, or by author). Pass the returned cursor to get the next page. |
-| `find_posts(keywords, subreddits?, days, scan_days, max_results, sort)` | Finds posts on a topic: one Reddit search per phrase, sitewide and in each given subreddit, merged and ranked. It can also scan new posts that search hasn't indexed yet. |
-| `find_similar(post, days, extra_keywords?, max_results)` | Finds other posts about the same thing, by shared link or by key title terms. Each result says why it matched. |
-| `account_status()` | Shows the linked account (if any), whether its session is valid, and the remaining rate budget. |
-| `link_account(source?)` | Links the Reddit login from a local browser profile. |
-| `get_post_requirements(subreddit)` | Shows a community's allowed post types, flairs and rules. Check this before posting. |
-| `create_post(...)` / `edit_post` / `set_post_options` / `delete_post` | Publishes and manages posts as the linked account. Posts can be text (with inline images), link, image, gallery or video. |
+| `get_thread` | Post and full comment tree from any post or comment URL, share link, `redd.it` link or id. Sort, depth, size cap, `format="text"`. |
+| `search_posts` | A subreddit feed (hot/new/top/rising) or a Reddit search, sitewide, in one subreddit or by author, with paging. |
+| `find_posts` | Several searches on a topic, sitewide and in chosen subreddits, merged and ranked. Optionally scans posts too new to be indexed. |
+| `find_similar` | Other posts about the same thing, matched by shared link or title terms, each with the reason it matched. |
+| `account_status`, `link_account` | Show or link the Reddit account. |
+| `get_post_requirements` | A community's allowed post types, flairs and rules. |
+| `create_post`, `edit_post`, `set_post_options`, `delete_post` | Post as the linked account: text, link, image, gallery or video. |
 
-Reading works anonymously. The posting tools need a linked account, and MCP clients that support dialogs ask you before the server touches your account.
+Reading works anonymously. Clients that support MCP dialogs (Claude Code) ask before the server touches your account.
 
 ## Install
 
-You need Python 3.10 or newer.
+Python 3.10+. With [uv](https://docs.astral.sh/uv/) there is nothing to clone; the `claude mcp add` line above is the whole setup. The first launch builds the package, so if your client times out on that first start, run the `uvx …` command once in a terminal and then restart the client.
 
-**With uv (no clone):**
-
-```bash
-uvx --from git+https://github.com/giri256/reddit-native-mcp reddit-native-mcp   # runs the stdio server
-```
-
-**From source:**
-
-```bash
-git clone https://github.com/giri256/reddit-native-mcp
-cd reddit-native-mcp
-python -m venv .venv && .venv/bin/pip install -e .
-```
-
-### Register with your client
-
-**Claude Code**
-
-```bash
-claude mcp add --transport stdio --scope user reddit-native -- "$PWD/.venv/bin/reddit-native-mcp"
-```
-
-**Claude Desktop / Cursor / any JSON-configured client**
+For other clients:
 
 ```json
 {
@@ -104,67 +69,35 @@ claude mcp add --transport stdio --scope user reddit-native -- "$PWD/.venv/bin/r
 }
 ```
 
-**opencode** (`~/.config/opencode/opencode.json`)
+opencode uses `"mcp": { "reddit-native": { "type": "local", "command": ["uvx", "--from", "git+https://github.com/giri256/reddit-native-mcp", "reddit-native-mcp"] } }`.
 
-```json
-{
-  "mcp": {
-    "reddit-native": { "type": "local", "command": ["/path/to/reddit-native-mcp/.venv/bin/reddit-native-mcp"] }
-  }
-}
-```
+From source: `git clone`, then `python -m venv .venv && .venv/bin/pip install -e .`, and point your client at `.venv/bin/reddit-native-mcp`.
 
-## Linking a Reddit account (optional)
+## Linking an account
 
-Linking is opt-in. Without it, everything read-only works anonymously.
+Optional. In Claude Code, ask the agent to link your account (or to post something). A dialog lists the browser profiles that are signed in to Reddit, plus a "stay anonymous" choice. Clients without dialogs call `link_account()` and then `link_account(source="firefox")` with the profile you pick.
 
-- **In a client with MCP dialogs (Claude Code):** ask the agent to link your account, or just ask it to post. A dialog lists the browser profiles that are logged in to Reddit, plus *Don't link: stay anonymous*.
-- **In a client without dialogs (e.g. opencode):** the agent calls `link_account()`, shows you the list, and calls `link_account(source="firefox")` or `link_account(source="brave:Default")` with your choice.
-- **From a terminal:** `reddit-native-mcp login` (offers the logged-in profiles), `login brave[:Profile 1]`, `login --window` (log in in a separate window), `login --paste`, `status`, `logout`.
-- **Config only:** set `REDDIT_NATIVE_MCP_COOKIES_FROM_BROWSER=firefox` (or `brave`, `chrome:Profile 1`, …) in the server's environment. Set `REDDIT_NATIVE_MCP_ANONYMOUS=1` to never use an account.
+From a terminal you can use `reddit-native-mcp login`, `login brave:Default`, `login --window`, `status` and `logout`. To configure it instead, set `REDDIT_NATIVE_MCP_COOKIES_FROM_BROWSER=firefox`, or set `REDDIT_NATIVE_MCP_ANONYMOUS=1` to never use an account.
 
-Supported browsers: Brave, Chrome, Chromium, Edge, Opera, Vivaldi, Whale and Firefox. The server keeps only reddit.com cookies, in `~/.config/reddit-native-mcp/session.json` (file mode 0600; override the folder with `REDDIT_NATIVE_MCP_HOME`). If Reddit later rejects the session, the server reads the same browser profile again. A running server picks up a new link without a restart.
+Supported browsers: Brave, Chrome, Chromium, Edge, Opera, Vivaldi, Whale and Firefox. Only reddit.com cookies are kept, in `~/.config/reddit-native-mcp/session.json` (mode 0600).
 
-## Examples
+## Limits
 
-Ask your agent:
-
-- "Read this whole thread and tell me what the top disagreements are: https://www.reddit.com/r/LocalLLaMA/comments/…"
-- "Find posts from the last 30 days in r/selfhosted and r/homelab about Immich vs PhotoPrism, then summarise what long-term users say."
-- "Here's a post. Find other threads about the same thing and check whether people reached the same conclusion."
-- "Which MCP launch posts got the most engagement this year, and what did they have in common?" (that's how this README was planned)
-
-## Limits and known behaviour
-
-- Reddit allows about 200 anonymous requests every few minutes. A linked account gets a separate, larger JSON-API budget. When the budget runs low, the tools say so.
-- Logged-out reads don't show NSFW, quarantined or private content.
-- Reddit search returns small pages, so a 100-result search takes several requests (about 5–10 s).
-- The server reads Reddit's own web and JSON responses. If Reddit changes its markup, parsing can break until the parser is updated (`scripts/record_native_fixtures.py` re-records the test fixtures).
+Logged out, Reddit allows roughly 200 requests every few minutes; the tools warn you before you run out. Logged-out reads can't see NSFW, quarantined or private content. The server parses Reddit's own pages and JSON, so a markup change on Reddit's side can break parsing until the fixtures are re-recorded (`scripts/record_native_fixtures.py`).
 
 ## Development
 
 ```bash
-.venv/bin/python -m unittest discover -s tests          # offline, 107 tests, ~4 s
-.venv/bin/python scripts/live_check_native.py           # live end-to-end over real stdio, ~30 s, ~80 requests
-.venv/bin/python scripts/record_native_fixtures.py      # re-record fixtures when Reddit's markup changes
+.venv/bin/python -m unittest discover -s tests     # 107 offline tests, ~4 s
+.venv/bin/python scripts/live_check_native.py      # live end-to-end check over stdio, ~30 s
 ```
-
-Layout: `src/reddit_native_mcp/` holds `server.py` (MCP tools), `http.py` (client, rate budget, cache), `parse.py`/`shape.py` (Reddit markup → records), `thread.py` (comment-tree expansion), `jsonapi.py` (logged-in reads), `similar.py`, `links.py`, `auth.py`/`browser_cookies.py` (account link) and `write.py` (posting).
 
 ## Disclaimer
 
-**Read this before you use the software.**
+This is an independent project. It is not affiliated with, endorsed by or sponsored by Reddit, Inc.; "Reddit" is their trademark and is used only to say what the software works with.
 
-- **Unofficial project.** reddit-native-mcp is an independent open-source tool. It is not affiliated with, endorsed by, or sponsored by Reddit, Inc. "Reddit" is a trademark of Reddit, Inc. and is used here only to describe what the software works with.
-- **Your responsibility.** You alone are responsible for how you use this software. That includes following [Reddit's User Agreement](https://redditinc.com/policies/user-agreement), its [Developer and Data API Terms](https://redditinc.com/policies/data-api-terms), any subreddit's rules, and the laws that apply to you (including data-protection laws such as the GDPR and CCPA, and copyright law).
-- **No scraping endorsement.** The tool is meant for personal, interactive, low-volume use by one person's AI assistant. Don't use it for bulk scraping, building datasets, training machine-learning models, reselling Reddit content, surveillance, de-anonymising people, harassment, vote manipulation, spam or any other abuse. The authors don't condone those uses and are not responsible for them.
-- **Account risk.** Using your browser session outside the browser, and posting through the posting tools, happen under your Reddit account. Reddit may rate-limit, restrict, suspend or ban accounts or IP addresses at its own discretion. You accept that risk. Anything the tool posts is public and attributed to you.
-- **Personal data.** Reddit content can include personal information about other people. Collect only what you need, don't republish it out of context, and handle it lawfully.
-- **Credentials stay local.** The account link copies reddit.com cookies from your own browser into a local file readable only by you. Nothing is sent anywhere except reddit.com. You should still treat that file like a password, and `reddit-native-mcp logout` deletes it.
-- **No warranty.** The software is provided "as is", without warranty of any kind, as stated in the [MIT License](LICENSE). The authors and contributors are not liable for any claim, damages, account loss, data loss or other liability arising from its use.
+You are responsible for how you use it, including Reddit's [User Agreement](https://redditinc.com/policies/user-agreement) and [Data API Terms](https://redditinc.com/policies/data-api-terms), subreddit rules, and the laws that apply to you (data protection such as GDPR/CCPA, and copyright). The tool is meant for one person's assistant reading Reddit at human-ish volume. Don't use it for bulk scraping, dataset building, model training, reselling content, surveillance, de-anonymising people, harassment, vote manipulation or spam. The authors don't condone those uses and aren't responsible for them.
 
-If you represent Reddit and have concerns about this project, please open an issue.
+Anything done with a linked account happens under that account, and Reddit may rate-limit, restrict or ban accounts or IPs at its discretion. Posts are public and attributed to you. Reddit content can contain other people's personal information, so handle it lawfully. The session file never leaves your machine except in requests to reddit.com; treat it like a password, and `reddit-native-mcp logout` deletes it.
 
-## License
-
-[MIT](LICENSE)
+Provided "as is", without warranty of any kind, under the [MIT License](LICENSE). If you represent Reddit and have a concern, please open an issue.
